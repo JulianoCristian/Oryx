@@ -27,3 +27,18 @@ echo
 echo "Building and running tests..."
 cd "$TESTS_SRC_DIR/$testProjectName"
 dotnet test --test-adapter-path:. --logger:"xunit;LogFilePath=$ARTIFACTS_DIR\testResults\\$testProjectName.xml" -c $BUILD_CONFIGURATION
+
+if [ "$ORYX_COPY_OUTPUT_TO_LOCAL_DIR_AND_RUN" == "true" ]
+then
+    tmpOutputDir="/tmp/output"
+    mkdir -p "$tmpOutputDir"
+    if [ "$(ls -A $tmpOutputDir)" ]
+	then
+		echo
+		echo "Temporary output directory '$tmpOutputDir' is not empty. Deleting its contents..."
+		rm -rf "$tmpOutputDir"/*
+	fi
+
+    sourcePath="$tmpOutputDir"
+    cp -rf "gen.sourcePath" "$tmpOutputDir"
+fi

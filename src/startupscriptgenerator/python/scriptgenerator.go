@@ -33,8 +33,21 @@ func (gen *PythonStartupScriptGenerator) GenerateEntrypointScript() string {
 	
 	scriptBuilder := strings.Builder{}
 	scriptBuilder.WriteString("#!/bin/sh\n")
+	scriptBuilder.WriteString("\nsourcePath=\"" + gen.SourcePath + "\"\n");
+	scriptBuilder.WriteString("\nif [ \"$ORYX_COPY_OUTPUT_TO_LOCAL_DIR_AND_RUN\" == \"true\" ];then\n");
+	scriptBuilder.WriteString("		tmpOutputDir=\"/tmp/output\"\n");
+	scriptBuilder.WriteString("		mkdir -p \"$tmpOutputDir\"\n");
+	scriptBuilder.WriteString("		if [ \"$(ls -A $tmpOutputDir)\" ];then\n");
+	scriptBuilder.WriteString("			echo\n");
+	scriptBuilder.WriteString("			echo \"Temporary output directory '$tmpOutputDir' is not empty. Deleting its contents...\"\n");
+	scriptBuilder.WriteString("			rm -rf \"$tmpOutputDir\"/*\n");
+	scriptBuilder.WriteString("		fi\n\n");
+	scriptBuilder.WriteString("		cp -rf \"$sourcePath\" \"$tmpOutputDir\"\n");
+	scriptBuilder.WriteString("		sourcePath=\"$tmpOutputDir\"\n");
+	scriptBuilder.WriteString("fi\n\n");
+	
 	scriptBuilder.WriteString("\n# Enter the source directory to make sure the script runs where the user expects\n")
-	scriptBuilder.WriteString("cd " + gen.SourcePath + "\n\n")
+	scriptBuilder.WriteString("cd \"$sourcePath\"\n\n")
 	
 	common.SetEnvironmentVariableInScript(&scriptBuilder, "PORT", gen.BindPort, DefaultBindPort)
 
