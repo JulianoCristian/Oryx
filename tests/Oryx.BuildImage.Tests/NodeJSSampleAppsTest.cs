@@ -17,7 +17,8 @@ namespace Microsoft.Oryx.BuildImage.Tests
     {
         private static readonly string SampleAppName = "webfrontend";
 
-        private DockerVolume CreateWebFrontEndVolume() => DockerVolume.Create(Path.Combine(_hostSamplesDir, "nodejs", SampleAppName));
+        private DockerVolume CreateWebFrontEndVolume()
+            => DockerVolume.Create(Path.Combine(_hostSamplesDir, "nodejs", SampleAppName));
 
         public NodeJSSampleAppsTest(ITestOutputHelper output) :
             base(output, new DockerCli(new EnvironmentVariable[] { new EnvironmentVariable(LoggingConstants.AppServiceAppNameEnvironmentVariableName, SampleAppName) }))
@@ -170,10 +171,14 @@ namespace Microsoft.Oryx.BuildImage.Tests
                 result.GetDebugInfo());
         }
 
-        private ShellScriptBuilder SetupEnvironment_ErrorDetectingNodeTest(string appDir, string appOutputDir, string logFile)
+        private ShellScriptBuilder SetupEnvironment_ErrorDetectingNodeTest(
+            string appDir,
+            string appOutputDir,
+            string logFile)
         {
             var nodeCode =
-            @"var http = require('http'); var server = http.createServer(function(req, res) { res.writeHead(200); res.end('Hi oryx');}); server.listen(8080);";
+            @"var http = require('http'); var server = http.createServer(function(req, res) { res.writeHead(200);" +
+            " res.end('Hi oryx');}); server.listen(8080);";
 
             //following is the directory structure of the source repo in the test
             //tmp
@@ -592,6 +597,9 @@ namespace Microsoft.Oryx.BuildImage.Tests
                 .AddBuildCommand($"{appDir} -i /tmp/int -o {appOutputDir} -p compress_node_modules=tar-gz")
                 .AddFileExistsCheck($"{appOutputDir}/node_modules.tar.gz")
                 .AddDirectoryDoesNotExistCheck($"{appOutputDir}/node_modules")
+                .AddStringExistsInFileCheck(
+                "compressedNodeModulesFile=\"node_modules.tar.gz\"",
+                $"{appOutputDir}/oryx-manifest.toml")
                 .ToString();
 
             // Act
@@ -616,7 +624,7 @@ namespace Microsoft.Oryx.BuildImage.Tests
         }
 
         [Fact]
-        public void BuildsNodeApp_AndZipsNodeModules_IfCompressNodeModulesIsZip()
+        public void BuildsNodeApp_AndZipsNodeModules_WithZip_IfCompressNodeModulesIsZip()
         {
             // NOTE: Use intermediate directory(which here is local to container) to avoid errors like
             //  "tar: node_modules/form-data: file changed as we read it"
@@ -630,7 +638,9 @@ namespace Microsoft.Oryx.BuildImage.Tests
                 .AddBuildCommand($"{appDir} -i /tmp/int -o {appOutputDir} -p compress_node_modules=zip")
                 .AddFileExistsCheck($"{appOutputDir}/node_modules.zip")
                 .AddDirectoryDoesNotExistCheck($"{appOutputDir}/node_modules")
-                .AddStringExistsInFileCheck("compressedNodeModulesFile=\"node_modules.zip\"", $"{appOutputDir}/oryx-manifest.toml")
+                .AddStringExistsInFileCheck(
+                "compressedNodeModulesFile=\"node_modules.zip\"",
+                $"{appOutputDir}/oryx-manifest.toml")
                 .ToString();
 
             // Act
@@ -664,7 +674,84 @@ namespace Microsoft.Oryx.BuildImage.Tests
             var script = new ShellScriptBuilder()
                 .AddBuildCommand($"{appDir} -i /tmp/int -o {appOutputDir}")
                 .AddFileDoesNotExistCheck($"{appOutputDir}/node_modules.zip")
+                .AddFileDoesNotExistCheck($"{appOutputDir}/node_modules.tar.gz")
                 .AddDirectoryExistsCheck($"{appOutputDir}/node_modules")
+                .ToString();
+
+            // Act
+            var result = _dockerCli.Run(
+                Settings.BuildImageName,
+                volume,
+                commandToExecuteOnRun: "/bin/bash",
+                commandArguments:
+                new[]
+                {
+                    "-c",
+                    script
+                });
+
+            // Assert
+            RunAsserts(
+                () =>
+                {
+                    Assert.True(result.IsSuccess);
+                },
+                result.GetDebugInfo());
+        }
+
+        [Fact]
+        public void PruningDependenciesAlone_ShouldNotCauseNodeModules_ToBeCompressed()
+        {
+            // Arrange
+            var volume = CreateWebFrontEndVolume();
+            var appDir = volume.ContainerDir;
+            var appOutputDir = "/tmp/webfrontend-output";
+            var script = new ShellScriptBuilder()
+                .AddBuildCommand($"{appDir} -i /tmp/int -o {appOutputDir} -p prune_dev_dependencies=true")
+                .AddFileDoesNotExistCheck($"{appOutputDir}/node_modules.zip")
+                .AddFileDoesNotExistCheck($"{appOutputDir}/node_modules.tar.gz")
+                .AddDirectoryDoesNotExistCheck($"{appOutputDir}/__oryx_all_node_modules")
+                .AddDirectoryDoesNotExistCheck($"{appOutputDir}/__oryx_prod_node_modules")
+                .AddDirectoryExistsCheck($"{appOutputDir}/node_modules")
+                .ToString();
+
+            // Act
+            var result = _dockerCli.Run(
+                Settings.BuildImageName,
+                volume,
+                commandToExecuteOnRun: "/bin/bash",
+                commandArguments:
+                new[]
+                {
+                    "-c",
+                    script
+                });
+
+            // Assert
+            RunAsserts(
+                () =>
+                {
+                    Assert.True(result.IsSuccess);
+                },
+                result.GetDebugInfo());
+        }
+
+        [Fact]
+        public void BuildsNodeApp_AndPrunesDependencies_AndZipsNodeModules()
+        {
+            // Arrange
+            var volume = CreateWebFrontEndVolume();
+            var appDir = volume.ContainerDir;
+            var appOutputDir = "/tmp/webfrontend-output";
+            var script = new ShellScriptBuilder()
+                .AddBuildCommand(
+                $"{appDir} -i /tmp/int -o {appOutputDir} " +
+                "-p prune_dev_dependencies=true -p compress_node_modules=tar-gz")
+                .AddFileDoesNotExistCheck($"{appOutputDir}/node_modules.zip")
+                .AddDirectoryDoesNotExistCheck($"{appOutputDir}/__oryx_all_node_modules")
+                .AddDirectoryDoesNotExistCheck($"{appOutputDir}/__oryx_prod_node_modules")
+                .AddDirectoryDoesNotExistCheck($"{appOutputDir}/node_modules")
+                .AddFileExistsCheck($"{appOutputDir}/node_modules.tar.gz")
                 .ToString();
 
             // Act

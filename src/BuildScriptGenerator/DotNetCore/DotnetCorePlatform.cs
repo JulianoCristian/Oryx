@@ -3,7 +3,6 @@
 // Licensed under the MIT license.
 // --------------------------------------------------------------------------------------------
 
-using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -11,11 +10,17 @@ using Microsoft.Extensions.Logging;
 
 namespace Microsoft.Oryx.BuildScriptGenerator.DotNetCore
 {
+    [BuildProperty(
+        ZipAllOutputPropertyKey,
+        "Zips entire output content and puts the file in the destination directory." +
+        "Options are 'true', blank (same meaning as 'true'), and 'false'. Default is false.")]
     /// <summary>
     /// .NET Core platform.
     /// </summary>
     internal class DotnetCorePlatform : IProgrammingPlatform
     {
+        internal const string ZipAllOutputPropertyKey = "zip_all_output";
+
         private readonly IDotnetCoreVersionProvider _versionProvider;
         private readonly IAspNetCoreWebAppProjectFileProvider _aspNetCoreWebAppProjectFileProvider;
         private readonly ILogger<DotnetCorePlatform> _logger;
@@ -44,19 +49,25 @@ namespace Microsoft.Oryx.BuildScriptGenerator.DotNetCore
 
         public BuildScriptSnippet GenerateBashBuildScriptSnippet(BuildScriptGeneratorContext scriptGeneratorContext)
         {
+            var buildProperties = new Dictionary<string, string>();
             (string projectFile, string publishDir) = GetProjectFileAndPublishDir(scriptGeneratorContext.SourceRepo);
             if (string.IsNullOrEmpty(projectFile) || string.IsNullOrEmpty(publishDir))
             {
                 return null;
             }
 
+            bool zipAllOutput = ShouldZipAllOutput(scriptGeneratorContext);
+            // TODO: tightly coupled
+            buildProperties[ManifestFilePropertyKeys.ZipAllOutput] = zipAllOutput.ToString().ToLowerInvariant();
+
             var props = new DotNetCoreBashBuildSnippetProperties
             {
                 ProjectFile = projectFile,
-                PublishDirectory = publishDir
+                PublishDirectory = publishDir,
+                ZipAllOutput = zipAllOutput
             };
             string script = TemplateHelpers.Render(TemplateHelpers.TemplateResource.DotNetCoreSnippet, props, _logger);
-            return new BuildScriptSnippet { BashBuildScriptSnippet = script };
+            return new BuildScriptSnippet { BashBuildScriptSnippet = script, BuildProperties = buildProperties };
         }
 
         public bool IsCleanRepo(ISourceRepo repo)
@@ -95,13 +106,25 @@ namespace Microsoft.Oryx.BuildScriptGenerator.DotNetCore
         public IEnumerable<string> GetDirectoriesToExcludeFromCopyToBuildOutputDir(
             BuildScriptGeneratorContext scriptGeneratorContext)
         {
-            return Array.Empty<string>();
+            var dirs = new List<string>();
+            dirs.Add("obj");
+            dirs.Add("bin");
+            return dirs;
         }
 
         public IEnumerable<string> GetDirectoriesToExcludeFromCopyToIntermediateDir(
             BuildScriptGeneratorContext scriptGeneratorContext)
         {
-            return Array.Empty<string>();
+            var dirs = new List<string>();
+            dirs.Add("obj");
+            dirs.Add("bin");
+            dirs.Add(DotnetCoreConstants.OryxOutputPublishDirectory);
+            return dirs;
+        }
+
+        private static bool ShouldZipAllOutput(BuildScriptGeneratorContext context)
+        {
+            return BuildPropertiesHelper.IsTrue(ZipAllOutputPropertyKey, context, valueIsRequired: false);
         }
 
         private (string projFile, string publishDir) GetProjectFileAndPublishDir(ISourceRepo repo)

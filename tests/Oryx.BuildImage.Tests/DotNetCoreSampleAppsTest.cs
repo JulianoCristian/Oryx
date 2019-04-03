@@ -3,7 +3,6 @@
 // Licensed under the MIT license.
 // --------------------------------------------------------------------------------------------
 
-using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using Microsoft.Oryx.BuildScriptGenerator.DotNetCore;
@@ -19,7 +18,7 @@ namespace Microsoft.Oryx.BuildImage.Tests
         public DotNetCoreSampleAppsTest(ITestOutputHelper output) : base(output)
         {
         }
-        
+
         private DockerVolume CreateSampleAppVolume(string sampleAppName) =>
             DockerVolume.Create(Path.Combine(_hostSamplesDir, "DotNetCore", sampleAppName));
 
@@ -295,6 +294,80 @@ namespace Microsoft.Oryx.BuildImage.Tests
                     Assert.True(result.IsSuccess);
                     Assert.Matches(@"Pre-build script: /opt/dotnet/2.1.\d+", result.StdOut);
                     Assert.Matches(@"Post-build script: /opt/dotnet/2.1.\d+", result.StdOut);
+                },
+                result.GetDebugInfo());
+        }
+
+        [Fact]
+        public void ZipsAllOutput_WhenUsingExplicitOutputDirectory()
+        {
+            // Arrange
+            var appName = "NetCoreApp21WebApp";
+            var volume = CreateSampleAppVolume(appName);
+            var appDir = volume.ContainerDir;
+            var appOutputDir = "/tmp/NetCoreApp21WebApp-output";
+            var script = new ShellScriptBuilder()
+                .AddBuildCommand($"{appDir} -o {appOutputDir} -p zip_all_output=true")
+                .AddFileDoesNotExistCheck($"{appOutputDir}/{appName}.dll")
+                .AddFileExistsCheck($"{appOutputDir}/oryx_output.tar.gz")
+                .AddFileExistsCheck($"{appOutputDir}/oryx-manifest.toml")
+                .ToString();
+
+            // Act
+            var result = _dockerCli.Run(
+                Settings.BuildImageName,
+                SampleAppsTestBase.CreateAppNameEnvVar(appName),
+                volume,
+                commandToExecuteOnRun: "/bin/bash",
+                commandArguments:
+                new[]
+                {
+                    "-c",
+                    script
+                });
+
+            // Assert
+            RunAsserts(
+                () =>
+                {
+                    Assert.True(result.IsSuccess);
+                },
+                result.GetDebugInfo());
+        }
+
+        [Fact]
+        public void ZipsAllOutput_ToOryxOutputDirectory_WhenSourceAndDestinationDir_AreSame()
+        {
+            // Arrange
+            var appName = "NetCoreApp11WebApp";
+            var volume = CreateSampleAppVolume(appName);
+            var appDir = volume.ContainerDir;
+            var appOutputDir = $"{appDir}/{DotnetCoreConstants.OryxOutputPublishDirectory}";
+            var script = new ShellScriptBuilder()
+                .AddBuildCommand($"{appDir} -p zip_all_output=true")
+                .AddFileDoesNotExistCheck($"{appOutputDir}/{appName}.dll")
+                .AddFileExistsCheck($"{appOutputDir}/oryx_output.tar.gz")
+                .AddFileExistsCheck($"{appDir}/oryx-manifest.toml")
+                .ToString();
+
+            // Act
+            var result = _dockerCli.Run(
+                Settings.BuildImageName,
+                SampleAppsTestBase.CreateAppNameEnvVar(appName),
+                volume,
+                commandToExecuteOnRun: "/bin/bash",
+                commandArguments:
+                new[]
+                {
+                    "-c",
+                    script
+                });
+
+            // Assert
+            RunAsserts(
+                () =>
+                {
+                    Assert.True(result.IsSuccess);
                 },
                 result.GetDebugInfo());
         }

@@ -22,10 +22,15 @@ namespace Microsoft.Oryx.BuildScriptGenerator.Node
         PruneDevDependenciesPropertyKey,
         "When using different intermediate and output folders, only the prod dependencies are copied to the output. " +
         "Options are 'true', blank (same meaning as 'true'), and 'false'. Default is false.")]
+    [BuildProperty(
+        ZipAllOutputPropertyKey,
+        "Zips entire output content and puts the file in the destination directory." +
+        "Options are 'true', blank (same meaning as 'true'), and 'false'. Default is false.")]
     internal class NodePlatform : IProgrammingPlatform
     {
         internal const string CompressNodeModulesPropertyKey = "compress_node_modules";
         internal const string PruneDevDependenciesPropertyKey = "prune_dev_dependencies";
+        internal const string ZipAllOutputPropertyKey = "zip_all_output";
         internal const string ZipNodeModulesOption = "zip";
         internal const string TarGzNodeModulesOption = "tar-gz";
 
@@ -124,7 +129,13 @@ namespace Microsoft.Oryx.BuildScriptGenerator.Node
                 buildProperties[NodeConstants.NodeModulesFileBuildProperty] = compressedNodeModulesFileName;
             }
 
+            var exlcudedDirs = GetDirectoriesToExcludeFromCopyToBuildOutputDir(context);
+
             bool pruneDevDependencies = ShouldPruneDevDependencies(context);
+            bool zipAllOutput = ShouldZipAllOutput(context);
+            // TODO: tightly coupled
+            buildProperties[ManifestFilePropertyKeys.ZipAllOutput] = zipAllOutput.ToString().ToLowerInvariant();
+
             var scriptProps = new NodeBashBuildSnippetProperties(
                 packageInstallCommand: packageInstallCommand,
                 runBuildCommand: runBuildCommand,
@@ -134,7 +145,9 @@ namespace Microsoft.Oryx.BuildScriptGenerator.Node
                 compressNodeModulesCommand: compressNodeModulesCommand,
                 compressedNodeModulesFileName: compressedNodeModulesFileName,
                 configureYarnCache: configureYarnCache,
-                pruneDevDependencies: pruneDevDependencies);
+                pruneDevDependencies: pruneDevDependencies,
+                directoriesToExcludeFromCopyToBuildOutputDir: exlcudedDirs,
+                zipAllOutput: zipAllOutput);
 
             string script = TemplateHelpers.Render(
                 TemplateHelpers.TemplateResource.NodeBuildSnippet,
@@ -279,17 +292,26 @@ namespace Microsoft.Oryx.BuildScriptGenerator.Node
             BuildScriptGeneratorContext scriptGeneratorContext)
         {
             var dirs = new List<string>();
+
+            // Always exclude the following directories from output
             dirs.Add(NodeConstants.AllNodeModulesDirName);
             dirs.Add(NodeConstants.ProdNodeModulesDirName);
 
-            // If the node modules folder is being packaged in a file, we don't copy it to the output
-            if (GetNodeModulesPackOptions(scriptGeneratorContext, out string compressCommand, out string compressedFileName))
+            var zipAllOutput = ShouldZipAllOutput(scriptGeneratorContext);
+            if (!zipAllOutput)
             {
-                dirs.Add(NodeConstants.NodeModulesDirName);
-            }
-            else if (!string.IsNullOrWhiteSpace(compressedFileName))
-            {
-                dirs.Add(compressedFileName);
+                // If the node modules folder is being packaged in a file, we don't copy it to the output
+                if (GetNodeModulesPackOptions(
+                    scriptGeneratorContext,
+                    out string compressCommand,
+                    out string compressedFileName))
+                {
+                    dirs.Add(NodeConstants.NodeModulesDirName);
+                }
+                else if (!string.IsNullOrWhiteSpace(compressedFileName))
+                {
+                    dirs.Add(compressedFileName);
+                }
             }
 
             return dirs;
@@ -329,17 +351,12 @@ namespace Microsoft.Oryx.BuildScriptGenerator.Node
 
         private static bool ShouldPruneDevDependencies(BuildScriptGeneratorContext context)
         {
-            bool ret = false;
-            if (context.Properties != null &&
-                context.Properties.TryGetValue(PruneDevDependenciesPropertyKey, out string value))
-            {
-                if (string.IsNullOrWhiteSpace(value) || string.Equals("true", value, StringComparison.InvariantCultureIgnoreCase))
-                {
-                    ret = true;
-                }
-            }
+            return BuildPropertiesHelper.IsTrue(PruneDevDependenciesPropertyKey, context, valueIsRequired: false);
+        }
 
-            return ret;
+        private static bool ShouldZipAllOutput(BuildScriptGeneratorContext context)
+        {
+            return BuildPropertiesHelper.IsTrue(ZipAllOutputPropertyKey, context, valueIsRequired: false);
         }
 
         private static bool GetNodeModulesPackOptions(

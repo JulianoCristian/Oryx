@@ -8,6 +8,7 @@ package main
 import (
 	"flag"
 	"log"
+	"path/filepath"
 	"startupscriptgenerator/common"
 )
 
@@ -31,7 +32,8 @@ func main() {
 	defaultAppFilePathPtr := flag.String(
 		"defaultAppFilePath",
 		"",
-		"[Optional] Path to a default dll that will be executed if the entrypoint is not found. Ex: '/opt/startup/aspnetcoredefaultapp.dll'")
+		"[Optional] Path to a default dll that will be executed if the entrypoint is not found."+
+			" Ex: '/opt/startup/aspnetcoredefaultapp.dll'")
 	flag.Parse()
 
 	fullSourcePath := common.GetValidatedFullPath(*sourcePathPtr)
@@ -46,6 +48,20 @@ func main() {
 	fullDefaultAppFilePath := ""
 	if *defaultAppFilePathPtr != "" {
 		fullDefaultAppFilePath = common.GetValidatedFullPath(*defaultAppFilePathPtr)
+	}
+
+	srcFolder := fullPublishedOutputPath
+	if srcFolder == "" {
+		// The output folder is a sub-directory of this source directory
+		srcFolder = filepath.Join(fullSourcePath, "oryx_publish_output")
+	}
+	buildManifest := common.GetBuildManifest(srcFolder)
+	if buildManifest.ZipAllOutput == "true" {
+		destFolder := "/tmp/output"
+
+		common.ExtractZippedOutput(srcFolder, destFolder)
+		
+		fullPublishedOutputPath = destFolder
 	}
 
 	entrypointGenerator := DotnetCoreStartupScriptGenerator{

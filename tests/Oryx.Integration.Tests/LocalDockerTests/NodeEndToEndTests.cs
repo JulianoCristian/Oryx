@@ -300,6 +300,58 @@ namespace Microsoft.Oryx.Integration.Tests.LocalDockerTests
         }
 
         [Fact]
+        public async Task CanBuildAndRun_NodeApp_WhenEntireOutputIsZipped()
+        {
+            // Arrange
+            var nodeVersion = "10.14";
+            var appName = "webfrontend";
+            var hostDir = Path.Combine(_hostSamplesDir, "nodejs", appName);
+            var volume = DockerVolume.Create(hostDir);
+            var appDir = volume.ContainerDir;
+            var appOutputDirPath = Directory.CreateDirectory(
+                Path.Combine(_tempRootDir, Guid.NewGuid().ToString("N"))).FullName;
+            var appOutputDirVolume = DockerVolume.Create(appOutputDirPath);
+            var appOutputDir = appOutputDirVolume.ContainerDir;
+            var portMapping = $"{HostPort}:{ContainerPort}";
+            var buildScript = new ShellScriptBuilder()
+                .AddCommand($"oryx build {appDir} -i /tmp/int -o /tmp/out -l nodejs " +
+                $"--language-version {nodeVersion} -p zip_all_output=true")
+                .AddFileExistsCheck("/tmp/out/oryx_output.tar.gz")
+                .AddCommand($"cp -rf /tmp/out/* {appOutputDir}")
+                .ToString();
+            var runScript = new ShellScriptBuilder()
+                .AddCommand($"cd {appDir}")
+                .AddCommand(
+                $"oryx -appPath {appOutputDir} -bindPort {ContainerPort}")
+                .AddCommand(DefaultStartupFilePath)
+                .ToString();
+
+            await EndToEndTestHelper.BuildRunAndAssertAppAsync(
+                appName,
+                _output,
+                new List<DockerVolume> { volume, appOutputDirVolume },
+                "/bin/bash",
+                new[]
+                {
+                    "-c",
+                    buildScript
+                },
+                $"oryxdevms/node-{nodeVersion}",
+                portMapping,
+                "/bin/sh",
+                new[]
+                {
+                    "-c",
+                    runScript
+                },
+                async () =>
+                {
+                    var data = await _httpClient.GetStringAsync($"http://localhost:{HostPort}/");
+                    Assert.Contains("Say It Again", data);
+                });
+        }
+
+        [Fact]
         public async Task NodeStartupScript_UsesPortEnvironmentVariableValue()
         {
             // Arrange

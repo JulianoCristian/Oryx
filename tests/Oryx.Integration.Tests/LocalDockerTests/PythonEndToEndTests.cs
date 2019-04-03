@@ -146,6 +146,52 @@ namespace Microsoft.Oryx.Integration.Tests.LocalDockerTests
         }
 
         [Fact]
+        public async Task CanBuildAndRunPythonApp_ByZippingAllOutput()
+        {
+            // Arrange
+            var appName = "flask-app";
+            var hostDir = Path.Combine(_hostSamplesDir, "python", appName);
+            var volume = DockerVolume.Create(hostDir);
+            var appDir = volume.ContainerDir;
+            var appOutputDirPath = Directory.CreateDirectory(
+                Path.Combine(_tempRootDir, Guid.NewGuid().ToString("N"))).FullName;
+            var appOutputDirVolume = DockerVolume.Create(appOutputDirPath);
+            var appOutputDir = appOutputDirVolume.ContainerDir;
+            var portMapping = $"{HostPort}:{ContainerPort}";
+            var buildScript = new ShellScriptBuilder()
+                .AddCommand($"oryx build {appDir} -i /tmp/int -o /tmp/out -l nodejs " +
+                "--language-version 3.7 -p zip_all_output=true")
+                .AddFileExistsCheck("/tmp/out/oryx_output.tar.gz")
+                .AddCommand($"cp -rf /tmp/out/* {appOutputDir}")
+                .ToString();
+            var runScript = new ShellScriptBuilder()
+                .AddCommand($"cd {appDir}")
+                .AddCommand($"oryx -appPath {appDir} -bindPort {ContainerPort}")
+                .AddCommand(DefaultStartupFilePath)
+                .ToString();
+
+            await EndToEndTestHelper.BuildRunAndAssertAppAsync(
+                appName,
+                _output,
+                volume,
+                "oryx",
+                new[] { "build", appDir },
+                "oryxdevms/python-3.7",
+                portMapping,
+                "/bin/bash",
+                new[]
+                {
+                    "-c",
+                    runScript
+                },
+                async () =>
+                {
+                    var data = await _httpClient.GetStringAsync($"http://localhost:{HostPort}/");
+                    Assert.Contains("Hello World!", data);
+                });
+        }
+
+        [Fact]
         public async Task CanBuildAndRunPythonApp_UsingPython36()
         {
             // Arrange
@@ -630,7 +676,7 @@ namespace Microsoft.Oryx.Integration.Tests.LocalDockerTests
                 });
         }
 
-        [Fact]
+        [Fact(Skip = "Disabled multi-platform builds temporarily")]
         public async Task CanBuildAndRun_MultiPlatformApp_HavingReactAndDjango()
         {
             // Arrange

@@ -221,6 +221,56 @@ namespace Microsoft.Oryx.Integration.Tests.LocalDockerTests
         }
 
         [Fact]
+        public async Task CanBuildAndRun_NetCore21WebApp_WhenUsingExplicitPublishOutputDirectory_ZippingAllOutput()
+        {
+            // Arrange
+            var dotnetcoreVersion = "2.1";
+            var hostDir = Path.Combine(_hostSamplesDir, "DotNetCore", NetCoreApp21WebApp);
+            var volume = DockerVolume.Create(hostDir);
+            var appDir = volume.ContainerDir;
+            var appOutputDirPath = Directory.CreateDirectory(
+                Path.Combine(_tempRootDir, Guid.NewGuid().ToString("N"))).FullName;
+            var appOutputDirVolume = DockerVolume.Create(appOutputDirPath);
+            var appOutputDir = appOutputDirVolume.ContainerDir;
+            var portMapping = $"{HostPort}:{ContainerPort}";
+            var buildScript = new ShellScriptBuilder()
+                .AddCommand(
+                $"oryx build {appDir} -i /tmp/int -o /tmp/out -p zip_all_output=true")
+                .AddFileExistsCheck("/tmp/out/oryx_output.tar.gz")
+                .AddCommand($"cp -rf /tmp/out/* {appOutputDir}")
+                .ToString();
+            var runScript = new ShellScriptBuilder()
+                .AddCommand(
+                $"oryx -sourcePath {appDir} -publishedOutputPath {appOutputDir} -bindPort {ContainerPort}")
+                .AddCommand(DefaultStartupFilePath)
+                .ToString();
+
+            await EndToEndTestHelper.BuildRunAndAssertAppAsync(
+                NetCoreApp21WebApp,
+                _output,
+                new List<DockerVolume> { volume, appOutputDirVolume },
+                "/bin/sh",
+                new[]
+                {
+                    "-c",
+                    buildScript
+                },
+                $"oryxdevms/dotnetcore-{dotnetcoreVersion}",
+                portMapping,
+                "/bin/sh",
+                new[]
+                {
+                    "-c",
+                    runScript
+                },
+                async () =>
+                {
+                    var data = await _httpClient.GetStringAsync($"http://localhost:{HostPort}/");
+                    Assert.Contains("Hello World!", data);
+                });
+        }
+
+        [Fact]
         public async Task CanBuildAndRun_NetCore22WebApp()
         {
             // Arrange
@@ -498,7 +548,7 @@ namespace Microsoft.Oryx.Integration.Tests.LocalDockerTests
                 });
         }
 
-        [Fact]
+        [Fact(Skip = "Skipped multi-platform builds temporarily")]
         public async Task CanBuildAndRun_MultiLanguageApp_ReactAndDotNet()
         {
             // Arrange

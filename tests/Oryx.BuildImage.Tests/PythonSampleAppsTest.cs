@@ -553,9 +553,43 @@ namespace Microsoft.Oryx.BuildImage.Tests
                 () =>
                 {
                     Assert.True(result.IsSuccess);
-                    Assert.Contains(
-                        $"Python Version: /opt/python/{PythonVersions.Python37Version}/bin/python3",
-                        result.StdOut);
+                },
+                result.GetDebugInfo());
+        }
+
+        [Fact]
+        public void Build_ZipsVirtualEnv_IfZipVirtualEnvDir_Property_IsTrue()
+        {
+            // Arrange
+            var virtualEnvironmentName = "myenv";
+            var volume = CreateSampleAppVolume("flask-app");
+            var appDir = volume.ContainerDir;
+            var appOutputDir = "/tmp/app-output";
+            var script = new ShellScriptBuilder()
+                .AddBuildCommand(
+                $"{appDir} -i /tmp/int -o {appOutputDir} -p virtualenv_name={virtualEnvironmentName} -p zip_venv_dir")
+                .AddDirectoryDoesNotExistCheck($"{appOutputDir}/{virtualEnvironmentName}")
+                .AddFileExistsCheck($"{appOutputDir}/{virtualEnvironmentName}.tar.gz")
+                .ToString();
+
+            // Act
+            var result = _dockerCli.Run(
+                Settings.BuildImageName,
+                CreateAppNameEnvVar("flask-app"),
+                volume,
+                commandToExecuteOnRun: "/bin/bash",
+                commandArguments:
+                new[]
+                {
+                    "-c",
+                    script
+                });
+
+            // Assert
+            RunAsserts(
+                () =>
+                {
+                    Assert.True(result.IsSuccess);
                 },
                 result.GetDebugInfo());
         }
